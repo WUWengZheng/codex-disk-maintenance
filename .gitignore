@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.env
+.env.*
+/reports/
+/disk-maintenance/
+signing.key
+registry.json
+outputs-registry.json
+scan-*.json
+plan-*.json
+result-*.json
+*.sqlite
+*.sqlite-*

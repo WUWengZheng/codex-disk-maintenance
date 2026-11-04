@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex 磁盘维护"
+  short_description: "整理最终成果、清理迭代旧版，将经验持续维护在唯一的 MD 文件中"
+  default_prompt: "使用 $codex-disk-maintenance 整理本次任务的成果，保留最终版和必要源文件，清理明确被替代的结果；把有效经验汇总到唯一的经验记录.md，后续原位更新。"
