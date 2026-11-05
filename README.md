@@ -1,5 +1,7 @@
 # Codex Disk Maintenance · Codex 磁盘维护
 
+**简体中文** | [English](README.en.md)
+
 为 Codex 提供按需磁盘诊断、迭代成果管理和任务收尾能力：**保留最终成果、必要依赖及记忆，回收有依据的中间文件，把任务经验持续维护在一个 Markdown 文件中。**
 
 适用于 macOS，核心脚本使用 Python 3.9+ 标准库，无第三方 Python 运行依赖。
@@ -281,7 +283,8 @@ Skill 格式可用 Codex 自带的 `skill-creator/scripts/quick_validate.py` 检
 
 ```text
 codex-disk-maintenance/
-├── README.md
+├── README.md                 中文说明
+├── README.en.md              English documentation
 ├── SKILL.md
 ├── agents/openai.yaml
 ├── scripts/
