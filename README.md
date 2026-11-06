@@ -2,17 +2,23 @@
 
 **简体中文** | [English](README.en.md)
 
-为 Codex 提供按需磁盘诊断、迭代成果管理和任务收尾能力：**保留最终成果、必要依赖及记忆，回收有依据的中间文件，把任务经验持续维护在一个 Markdown 文件中。**
+为 Codex 提供磁盘诊断、迭代成果管理、聊天内清理提醒和任务收尾能力：**保留最终成果、必要依赖及记忆，多轮交付后提醒清理，用户回复“需要”再回收中间文件，把任务经验持续维护在一个 Markdown 文件中。**
 
 适用于 macOS，核心脚本使用 Python 3.9+ 标准库，无第三方 Python 运行依赖。
 
-> 当前为按需执行的 Skill。安装后不会创建后台服务、定时任务或聊天结束钩子；一句话调用也需要 Codex 在当前任务中加载并执行技能。
+> 技能在当前聊天被加载并持续使用后，可以在多轮成果交付时主动提醒清理。安装本身不创建后台服务、定时任务或聊天结束钩子，也不能保证每个聊天都会触发；新任务可用下面的一句话明确启用。
 
 ## 最简单的使用方式
 
-在 Codex 中说：
+在任务开始或继续优化时说一次：
 
-> **使用 $codex-disk-maintenance 整理项目成果，清理中间版本，更新经验记录。**
+> **使用 $codex-disk-maintenance，在本次任务多轮交付后提醒清理，我回复“需要”再执行。**
+
+之后正常修改成果。出现具体清理提醒时，只需回复 **“需要”**；Codex 会更新同一个经验文件，复核后清理本次提醒中的旧版。回复“暂不需要”则保留文件，同一批结果不反复提醒。
+
+已有成果需要立即整理时：
+
+> 使用 $codex-disk-maintenance 整理项目成果，清理中间版本，更新经验记录。
 
 需要明确保留范围时：
 
@@ -23,6 +29,7 @@
 | 你的需求 | 示例指令 |
 | --- | --- |
 | 检查空间 | 使用 $codex-disk-maintenance 检查 Codex 磁盘占用，先不要清理。 |
+| 多轮后提醒 | 使用 $codex-disk-maintenance，在本次任务多轮交付后提醒清理，我回复“需要”再执行。 |
 | 管理后续迭代 | 使用 $codex-disk-maintenance，这次只保留最终结果，清理中间版本。 |
 | 标记定稿 | 这版定稿，保留整套最终成果和必要素材。 |
 | 识别历史版本 | 使用 $codex-disk-maintenance 检查指定文件夹的迭代版本，先列出候选。 |
@@ -51,6 +58,7 @@ Codex 执行任务时，工作目录、依赖、渲染图片、转换文件、�
 | 缓存维护 | 使用 pip、uv、npm、pnpm 原生命令；每种工具有独立检查条件 |
 | 历史版本识别 | 按同目录、同格式的名称及版本号提出候选，不凭修改时间删除 |
 | 迭代版本登记 | 记录任务、成果、版本、明确替代关系和多格式交付包 |
+| 聊天内清理提醒 | 同一成果在当前聊天成功交付至少 3 轮且有可安全回收的前驱时提出具体建议；回复“需要”后执行，同一建议不重复询问 |
 | 旧版回收 | 仅处理被有效定稿明确替代、且已授权的登记文件 |
 | 单一经验 MD | 每个任务绑定一个经验文件路径，后续原位更新并保护它 |
 | 操作记录 | 清理前落盘，保留完成、跳过、失败和部分完成信息 |
@@ -88,7 +96,7 @@ git clone https://github.com/WUWengZheng/codex-disk-maintenance.git \
 git -C "${CODEX_HOME:-$HOME/.codex}/skills/codex-disk-maintenance" pull --ff-only
 ```
 
-已有手工安装副本时，先比较并保留本地修改，再采用 Git 安装方式。
+已有手工安装副本时，先比较并保留本地修改，再采用 Git 安装方式。更新后，在后续聊天中重新加载技能；进行中的聊天可明确要求读取更新后的 `SKILL.md`。
 
 ## 成果多轮优化如何处理
 
@@ -105,6 +113,30 @@ v1.svg → v2.svg → v3.svg + v3.png（最终交付）
 - 未被替代的独立方案、其他任务的成果继续保留。
 - 定稿或依赖丢失、发生变化时，停止回收相关旧版。
 - 已有文件缺乏可靠替代关系时，先由 Codex 核对当前任务证据，必要时询问最终版；不会只保留修改时间最新的文件。
+
+## 多轮交付后的清理提醒
+
+技能在当前聊天中管理迭代时，每次成功交付登记一个版本及其替代关系；同一轮导出的 SVG、PNG、PDF 是一个交付包，不按文件数量计算轮次。草稿、工具重试和失败导出不计入成功交付轮次。
+
+默认在同一成果于**当前聊天成功交付至少 3 轮**、并且存在通过检查的明确前驱文件时，在交付末尾提出清理建议。例如：
+
+```text
+Codex：第 3 版已交付。发现 2 个被最终版替代的中间文件（约 80 MiB）。
+       保留最终成果、必要源文件和经验记录，需要清理吗？回复“需要”即可。
+你：需要。
+Codex：更新原有经验记录，重新核对待清理文件与定稿，执行通过检查的回收并报告结果。
+```
+
+这类提醒只提出建议，不提前删除文件。数量和大小来自实际候选清单，大小是估计，不能保证释放同等磁盘空间。
+
+- 每个聊天只保留一份当前待确认建议，可以包含同一任务的多个成果；建议绑定实际文件、定稿状态和当前聊天。
+- 对同一定稿和候选不重复询问。拒绝或过期后也不持续催促；有新的成功交付和新候选时才可能再次提醒。
+- “需要”“可以清理”等明确答复，只有在直接回应当前具体清理建议时才构成授权。其他话题中的“需要”、引用或假设不触发清理。
+- 授权只覆盖这份建议中的中间结果，不包含其他任务、缓存、worktree、聊天或记忆。执行前先更新并保护任务唯一的经验 MD；尚未绑定时，由 Codex 创建并绑定 `经验记录.md`。
+- 建议有效期为 **24 小时**。执行前仍需复核原候选和定稿；过期、文件改变或仍在使用时停止相关回收，不擅自扩大范围或改用更强的清理方式。
+- 确认只使用一次。中断或部分失败后呈现实际结果，不自动重复删除。没有可靠替代关系或安全候选时，不为凑够轮次而提出删除建议。
+
+这属于技能被加载后的聊天内工作流，没有跨聊天监听器。其他聊天的历史版本不计入本次聊天的交付轮次。正常的技能自动选择仍可使用；要确保本次任务启用，可显式说出 `$codex-disk-maintenance` 和上面的提醒指令。
 
 ## 唯一的经验记录文件
 
@@ -193,18 +225,18 @@ python3 scripts/disk_maintenance.py scratch finish \
 python3 scripts/iterations.py inspect --root /absolute/task
 
 python3 scripts/iterations.py track \
-  --task paper --artifact figure6 --revision v1 \
+  --task paper --artifact figure6 --revision v1 --chat CHAT_ID --final \
   --file /absolute/figure6_v1.svg
 
 python3 scripts/iterations.py track \
-  --task paper --artifact figure6 --revision v2 --replaces v1 \
+  --task paper --artifact figure6 --revision v2 --replaces v1 --chat CHAT_ID \
   --file /absolute/figure6_v2.svg --file /absolute/figure6_v2.png \
   --dependency /absolute/plot.py --dependency /absolute/assets --final
 
 python3 scripts/iterations.py review
 ```
 
-`--file`、`--dependency`、`--replaces` 可以重复。登记后的版本不可修改；文件变动后应登记新版本。`--final` 表示明确交付，不能仅因为文件名含 `final` 就设置。
+`--file`、`--dependency`、`--replaces` 可以重复。登记后的版本不可修改；文件变动后应登记新版本。`--final` 表示明确交付，不能仅因为文件名含 `final` 就设置。提醒只统计带有当前聊天 ID 的成功交付版本；`--chat` 未提供时使用环境中的 `CODEX_THREAD_ID`（如果存在），其他聊天或未绑定聊天的历史版本不计数。
 
 ### 5. 绑定经验文件与回收旧版
 
@@ -225,6 +257,37 @@ python3 scripts/iterations.py prune \
 ```
 
 它只删除明确的前驱版本文件，不清空任务目录，不自动保留一个“最新文件”而删除其余全部内容。迭代旧版回收不使用临时工作区的 24 小时规则；依据是明确替代关系和有效定稿。
+
+### 6. 生成提醒、确认或暂缓
+
+当前聊天使用稳定且独有的 `CHAT_ID`，与其他聊天区分；`TASK` 仍表示当前任务。每次成功交付后，由 Codex 检查是否需要提醒。下面沿用前两轮示例，登记第三次交付：
+
+```sh
+python3 scripts/iterations.py track \
+  --task paper --artifact figure6 --revision v3 --replaces v2 --chat CHAT_ID \
+  --file /absolute/figure6_v3.svg --file /absolute/figure6_v3.png \
+  --dependency /absolute/plot.py --dependency /absolute/assets --final
+
+python3 scripts/iterations.py remind --task paper --chat CHAT_ID
+```
+
+返回 `status: offered` 时，展示其中的候选范围、保留范围、数量及大小估计。使用返回的 `offer_id`；不要手写或复用其他聊天的建议 ID。再次检查同一建议不会重复提醒。
+
+用户直接确认这份建议后，先更新并绑定唯一的经验文件，再执行：
+
+```sh
+# 实际删除：仅在用户已明确同意当前具体建议后运行
+python3 scripts/iterations.py confirm \
+  --chat CHAT_ID --offer-id OFFER_ID --authorize-superseded
+```
+
+若用户说“暂不需要”，记录暂缓，不删除文件：
+
+```sh
+python3 scripts/iterations.py dismiss --chat CHAT_ID --offer-id OFFER_ID
+```
+
+提醒有效期、文件复核及一次性确认独立于临时工作区的冷却期。普通 `prune` 仍可用于用户直接授权的整理，不需要先凑够三轮；提醒也不会自行授予缓存清理权限。
 
 ## 缓存适配器
 
@@ -249,7 +312,7 @@ uv 只有在操作者已确认不存在保留环境通过符号链接依赖缓�
 ${CODEX_HOME:-~/.codex}/disk-maintenance/
 ├── signing.key             本地签名密钥
 ├── registry.json           临时工作区登记
-├── outputs-registry.json   成果版本与经验文件绑定
+├── outputs-registry.json   成果版本、经验文件绑定与清理提醒
 ├── scan-*.json             占用基线
 ├── plan-*.json             清理清单
 └── result-*.json           操作记录
@@ -275,7 +338,7 @@ ${CODEX_HOME:-~/.codex}/disk-maintenance/
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 ```
 
-测试只使用隔离目录和模拟包管理器，覆盖占用与增长、符号链接与硬链接、扫描预算、清单篡改、文件变化、使用状态、磁盘写满、命令失败、最终成果保护、版本替代关系和唯一经验 MD 绑定等场景。
+测试只使用隔离目录和模拟包管理器，覆盖占用与增长、符号链接与硬链接、扫描预算、清单篡改、文件变化、使用状态、磁盘写满、命令失败、最终成果保护、版本替代关系、唯一经验 MD 绑定，以及提醒去重、聊天隔离、过期和确认时复核等场景。
 
 Skill 格式可用 Codex 自带的 `skill-creator/scripts/quick_validate.py` 检查。这个开发用验证器需要 PyYAML；核心脚本和单元测试仍只用标准库。
 
@@ -295,7 +358,8 @@ codex-disk-maintenance/
 │   └── iteration-results.md
 └── tests/
     ├── test_disk_maintenance.py
-    └── test_iterations.py
+    ├── test_iterations.py
+    └── test_reminders.py
 ```
 
 ## 常见问题
@@ -303,6 +367,14 @@ codex-disk-maintenance/
 **安装后会每天自动删除吗？**
 
 不会。定时任务、会话钩子及后台监控尚未实现或配置。
+
+**为什么没有自动提醒？**
+
+先确认当前聊天已加载新版本技能，并使用它管理本次迭代。同一成果需要当前聊天中至少三轮成功交付和安全候选；仅聊天轮次很多、文件多或文件较旧都不足以触发。同一建议不会重复催促，技能也不会监听其他聊天。
+
+**只回复“需要”，会不会把所有缓存和旧文件都删掉？**
+
+不会。它只授权刚刚展示的当前聊天清理建议。定稿、必要依赖和唯一经验文件继续保留；候选改变、建议过期或检查失败时不会照旧删除。
 
 **能把任意旧成果自动判断成“无用”吗？**
 

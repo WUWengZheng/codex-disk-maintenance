@@ -5,6 +5,67 @@ not by an entire day or file extension. One artifact may have a final bundle:
 editable source + PDF + PNG + required assets. Protect the entire delivered
 bundle and its declared dependencies. Unrelated drafts/branches remain protected.
 
+## Proactive reminder and short confirmation
+
+While this skill is active for the current task, track one revision per successful
+**delivery round**, with `--final --chat CHAT_ID`. Bundle all delivered formats
+in that revision and explicitly declare predecessors and dependencies. Do not
+count tool retries, failed exports, draft-only versions, or plain conversation.
+`--chat` defaults to `CODEX_THREAD_ID` for track when available. Use one stable
+current-chat ID and task ID; never invent historical chat associations.
+
+After each delivery, check:
+
+```sh
+python3 "$SKILL_DIR/scripts/iterations.py" remind --task TASK --chat CHAT_ID
+```
+
+The default threshold is three delivered revisions of one artifact in this chat,
+with a current valid final and at least one eligible explicit predecessor. Old
+registrations without chat/delivery evidence do not count. The same preflight
+as pruning rejects active files, incomplete/changed bundles and protected roots.
+A read-only inspection request does not authorize registering revisions or offers.
+
+Only `status: offered` warrants a prompt. The signed registry persists one
+pending offer per chat, with an `offer_id`, exact candidate snapshots, retained
+final bundle, count, logical/allocated upper estimates, and a 24-hour expiration.
+Ask once about the concrete scope, preferably via an available asynchronous
+question tool. Example: 「已完成多轮优化，发现 N 个被最终版替代的中间文件（约 X）。
+保留最终成果、必要源文件和经验记录，需要清理吗？回复『需要』即可。」
+Use actual returned numbers; estimates do not promise physical freed space.
+Do not repeat the same delivery's suggestion after dismissal, expiration, or
+no answer. A newly delivered final can produce a new suggestion.
+
+A clear direct affirmative reply to the pending proposal grants its scope only.
+Unrelated 「需要」, hypothetical/quoted wording and cross-chat replies never count.
+The agent establishes this conversational consent; the CLI does not parse natural
+language or prove consent just because a flag was passed. It cannot remind when
+the agent never loads or runs the skill, and installs no scheduler or global hook.
+
+After consent, update the single task lessons document and bind it using `notes`
+(the closeout steps below). Then:
+
+```sh
+python3 "$SKILL_DIR/scripts/iterations.py" confirm --chat CHAT_ID --offer-id OFFER_ID --authorize-superseded
+```
+
+Confirmation requires the bound MD to exist, rechecks the original exact scope
+and active files, consumes the offer before deletion, and runs the ordinary
+pruner with another scope check. It cannot add new artifacts, files, caches or
+tasks to the approval. Changed/expired offers require a newly presented scope
+and new consent through the ordinary review/prune workflow. Partial or interrupted
+execution stays consumed: inspect journals; never silently replay it.
+
+For a negative reply:
+
+```sh
+python3 "$SKILL_DIR/scripts/iterations.py" dismiss --chat CHAT_ID --offer-id OFFER_ID
+```
+
+No answer means no deletion. Summarize actual removals/skips and directory bytes
+separately from observed volume-space changes. Preserve finals, sources, declared
+dependencies, the sole lessons MD, chat history and memory.
+
 ## Single Markdown task closeout
 
 Recognize a request such as 「整理这次对话的结果，删除不必要结果，把过程经验总结在一个

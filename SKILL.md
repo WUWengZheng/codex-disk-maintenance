@@ -1,6 +1,6 @@
 ---
 name: codex-disk-maintenance
-description: Diagnose Codex disk usage, identify iterative output versions, retain final deliverables and dependencies, and reclaim explicitly superseded outputs or managed caches. Also use for conversation/task closeout with one continuously updated Markdown lessons file. Runs on demand.
+description: Manage disk usage and repeated output revisions; proactively offer cleanup after multiple successful deliveries and handle a short reply to a pending cleanup offer. Preserve finals, dependencies and memory, and maintain one task lessons Markdown file.
 ---
 
 # Codex 磁盘维护
@@ -8,6 +8,43 @@ description: Diagnose Codex disk usage, identify iterative output versions, reta
 Use the bundled Python 3.9+ standard-library CLI. Set `SKILL_DIR` to the directory
 containing this file; do not assume the source and installed paths are the same.
 Commands emit JSON; explain findings in the user's language.
+
+## 多轮交付后的主动提醒
+
+在当前任务启用本技能后，持续管理迭代成果，不必等用户再次说「清理」。
+只读检查请求仍保持只读；用户要求不提醒时遵从。适用入口包括：
+「多轮结果后提醒我清理」「需要清理时问我，我回复需要再执行」。
+
+1. 每轮**成功交付**一个成果后，按 [iteration-results.md](references/iteration-results.md)
+   登记新版本、明确替代关系、完整交付包和源文件依赖；用 `--final --chat CHAT_ID`
+   记录本轮交付。一次交付的多种格式属于同一版本；试验、失败导出和纯聊天不计轮次。
+   使用当前聊天的稳定 ID（可用 `CODEX_THREAD_ID`），任务 ID 也应稳定且限定项目。
+2. 每次交付结束前执行 `remind --task TASK --chat CHAT_ID`。默认同一成果在
+   当前聊天成功交付至少 3 轮、且存在通过复核的明确前驱文件才提出建议。
+   只有返回 `status: offered` 才提醒；其余状态保持安静或报告真正阻碍清理的问题。
+3. 用工具返回的真实数量、估计大小及范围提出**一个**待确认建议，例如：
+   「已完成多轮优化，发现 N 个被最终版替代的中间文件（约 X）。将保留最终成果、
+   必要源文件和经验记录，需要清理吗？回复『需要』即可。」
+   有 `request_user_input_async` 时使用它并继续当前工作，选项为「需要」「暂不需要」；
+   无该工具时在交付消息末尾询问。不要编造精确可回收空间。
+4. 仅在用户直接回应本聊天中仍待确认的具体建议时，将「需要」「清理吧」「可以」
+   或清晰同义答复视为**该清单**的授权。无需用户重复技能名或逐文件确认。
+   其他话题中的「需要」、引用、假设、其他聊天的回复或过期建议均不构成授权。
+   话题有歧义时继续独立工作并仅澄清所指范围；不自动删除。
+5. 同意后先按任务收尾规则更新/创建并绑定唯一的经验 MD，再用返回的 `offer_id`
+   执行 `confirm --chat CHAT_ID --offer-id OFFER_ID --authorize-superseded`。
+   若绑定已存在，原位更新；如没有有依据的经验，简述当前交付和待验证项，不编造。
+   执行器只允许原建议范围并再次检查；变化、在用、过期或失败时停止并解释。
+   对变化/过期范围重新展示当前具体清单，取得新授权后走普通 review/prune 流程。
+6. 用户回复「不用」「暂不需要」时调用 `dismiss`；同一批结果不反复询问。
+   不回复不会触发清理。之后有新的成功交付，可再次提出新建议。
+
+详细命令、一次性建议及恢复规则见
+[提醒与确认](references/iteration-results.md#proactive-reminder-and-short-confirmation)。
+自动提醒由已加载技能的 Codex 在交付时执行；安装技能不是跨聊天的事件钩子，
+不保证未加载技能的聊天会运行。保持隐式选用开启，必要时一句话显式启用：
+「使用 $codex-disk-maintenance，在本次任务多轮交付后提醒清理，我回复需要再执行。」
+不要为此修改全局规则或安装后台服务。
 
 ## 一句话入口
 

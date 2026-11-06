@@ -2,17 +2,23 @@
 
 [简体中文](README.md) | **English**
 
-On-demand disk diagnostics, output revision management, and task closeout for Codex: **retain final deliverables, required dependencies, and memory; reclaim intermediates with clear evidence; and maintain task lessons in one Markdown document.**
+Disk diagnostics, output revision management, in-chat cleanup reminders, and task closeout for Codex: **retain final deliverables, required dependencies, and memory; offer cleanup after repeated deliveries; reclaim intermediates after the user says “yes”; and maintain task lessons in one Markdown document.**
 
 Built for macOS. Core scripts use Python 3.9+ and the standard library, with no third-party Python runtime dependencies.
 
-> This is an on-demand Skill. Installation does not create background services, scheduled jobs, or session-end hooks. A one-sentence request still requires Codex to load and execute the skill in the current task.
+> Once loaded and used in the current chat, the skill can proactively offer cleanup after repeated deliveries. Installation alone creates no background service, scheduled job, or session-end hook, and does not guarantee invocation in every chat. Use the one-sentence request below to enable it for a task.
 
 ## The simplest way to use it
 
-Tell Codex:
+Say this once when starting a task or continuing refinements:
 
-> **Use $codex-disk-maintenance to organize project deliverables, clean up intermediate versions, and update the lessons log.**
+> **Use $codex-disk-maintenance to remind me about cleanup after repeated deliveries in this task, and perform it when I reply “yes.”**
+
+Continue refining normally. When a concrete cleanup offer appears, reply **“yes”** or **“需要”**. Codex updates the same lessons file, rechecks the offered predecessors, and removes those that pass. Reply “not now” to retain them without repeated prompts for the same results.
+
+To organize existing results immediately:
+
+> Use $codex-disk-maintenance to organize project deliverables, clean up intermediate versions, and update the lessons log.
 
 For a more explicit closeout request:
 
@@ -23,6 +29,7 @@ You can also invoke individual workflows:
 | What you need | Example request |
 | --- | --- |
 | Inspect disk usage | Use $codex-disk-maintenance to inspect Codex disk usage without deleting anything. |
+| Remind after repeated deliveries | Use $codex-disk-maintenance to offer cleanup after repeated deliveries in this task, and perform it when I reply “yes.” |
 | Manage future iterations | Use $codex-disk-maintenance for this task: keep the final deliverables and clean up superseded versions. |
 | Mark a final delivery | This version is final. Keep the complete deliverable bundle and required assets. |
 | Identify historical revisions | Use $codex-disk-maintenance to inspect revisions in this folder and list candidates first. |
@@ -51,6 +58,7 @@ Codex makes semantic judgments and writes lessons using available task evidence.
 | Cache maintenance | Use native pip, uv, npm, and pnpm commands with tool-specific checks |
 | Historical revision discovery | Suggest candidates from names and version numbers within the same directory and format; never delete based on modification time |
 | Revision tracking | Record tasks, artifacts, revisions, explicit replacement relationships, and multi-format delivery bundles |
+| In-chat cleanup reminders | Offer a concrete scope after at least 3 successful deliveries of an artifact in the current chat and safely reclaimable predecessors; act after “yes” without repeating the same offer |
 | Superseded-output cleanup | Remove only authorized, registered predecessors explicitly superseded by a valid final delivery |
 | One lessons Markdown file | Bind one lessons path per task, update it in place, and protect it |
 | Audit records | Persist intent before cleanup and record completed, skipped, failed, or partially completed actions |
@@ -88,7 +96,7 @@ If the installed Git checkout has no local changes:
 git -C "${CODEX_HOME:-$HOME/.codex}/skills/codex-disk-maintenance" pull --ff-only
 ```
 
-For a manually installed copy, compare and preserve local changes before switching to a Git-based installation.
+For a manually installed copy, compare and preserve local changes before switching to a Git-based installation. After updating, reload the skill in subsequent chats; an ongoing chat can explicitly be asked to read the updated `SKILL.md`.
 
 ## Managing repeated refinements
 
@@ -105,6 +113,32 @@ The complete final bundle and its dependencies are retained. Only explicit prede
 - Independent, unreplaced alternatives and outputs from other tasks remain protected.
 - Missing or changed final files/dependencies block cleanup of related predecessors.
 - Without reliable replacement relationships, Codex checks current task evidence and asks which version is final when necessary. It does not simply retain the most recently modified file.
+
+## Cleanup reminders after repeated deliveries
+
+While managing iterations in the current chat, the skill registers one revision and its replacement relationships per successful delivery. SVG, PNG, and PDF files exported in the same round form one bundle, not multiple rounds. Drafts, tool retries, and failed exports do not count as successful deliveries.
+
+By default, after at least **3 successful deliveries of an artifact in the current chat**, with explicit predecessor files that pass the checks, Codex offers cleanup at the end of a delivery. For example:
+
+```text
+Codex: Revision 3 is delivered. I found 2 intermediate files superseded by the final
+       bundle (about 80 MiB). Keep final outputs, required sources, and the lessons
+       file, and clean up these predecessors? Reply “yes” to proceed.
+You:   Yes.
+Codex: Updates the existing lessons file, rechecks the offered files and final
+       bundle, performs eligible cleanup, and reports the actual result.
+```
+
+A reminder proposes an action; it does not delete in advance. File counts and sizes come from the actual candidate list. Sizes are estimates, not guaranteed disk-space recovery.
+
+- Each chat has one current pending offer, which can include several artifacts from the same task. It is bound to actual files, final-delivery state, and that chat.
+- The same final delivery and candidates are not repeatedly offered. Declined or expired offers do not produce repeated prompts; a new successful delivery with new candidates may produce another offer.
+- A clear reply such as “yes,” “需要,” or “clean them up” authorizes deletion only when it directly answers the current concrete offer. The same words in another topic, a quotation, or a hypothetical do not trigger cleanup.
+- Consent covers only the intermediates in that offer. It excludes other tasks, caches, worktrees, chats, and memory. Before execution, Codex updates and protects the task's one lessons Markdown file; if none is bound, it creates and binds `经验记录.md`.
+- Offers expire after **24 hours**. Execution still rechecks the original candidates and final bundle. Expired, changed, or active files stop the affected cleanup without expanding the scope or increasing cleanup strength.
+- Confirmation is used only once. Interruptions or partial failures are reported rather than retried automatically. Without reliable replacement relationships or safe candidates, reaching a round count does not justify a deletion offer.
+
+This is an in-chat workflow while the skill is loaded, without a cross-chat listener. Historical revisions from other chats do not count toward this chat's deliveries. Normal automatic skill selection remains available; explicitly name `$codex-disk-maintenance` with the reminder request above to enable it for this task.
 
 ## One continuously updated lessons file
 
@@ -193,18 +227,18 @@ Arbitrary historical directories cannot be registered as disposable workspaces. 
 python3 scripts/iterations.py inspect --root /absolute/task
 
 python3 scripts/iterations.py track \
-  --task paper --artifact figure6 --revision v1 \
+  --task paper --artifact figure6 --revision v1 --chat CHAT_ID --final \
   --file /absolute/figure6_v1.svg
 
 python3 scripts/iterations.py track \
-  --task paper --artifact figure6 --revision v2 --replaces v1 \
+  --task paper --artifact figure6 --revision v2 --replaces v1 --chat CHAT_ID \
   --file /absolute/figure6_v2.svg --file /absolute/figure6_v2.png \
   --dependency /absolute/plot.py --dependency /absolute/assets --final
 
 python3 scripts/iterations.py review
 ```
 
-`--file`, `--dependency`, and `--replaces` can be repeated. Registered revisions are immutable; register a new revision after file edits. `--final` means an established delivery, not merely a filename containing `final`.
+`--file`, `--dependency`, and `--replaces` can be repeated. Registered revisions are immutable; register a new revision after file edits. `--final` means an established delivery, not merely a filename containing `final`. Reminders count only successful deliveries associated with the current chat ID. When `--chat` is omitted, `CODEX_THREAD_ID` is used if set; historical revisions from another chat or without a chat binding do not count.
 
 ### 5. Binding lessons and pruning predecessors
 
@@ -225,6 +259,37 @@ python3 scripts/iterations.py prune \
 ```
 
 It removes only explicit predecessor files. It does not empty the task directory or retain one “latest file” while deleting everything else. Revision pruning does not use the workspace's 24-hour rule; eligibility rests on explicit replacement relationships and a valid final delivery.
+
+### 6. Creating, confirming, or dismissing a reminder
+
+Use a stable `CHAT_ID` unique to the current chat, separate from other chats. `TASK` still identifies the current task. Codex checks for a reminder after each successful delivery. Continuing the two-round example above, register the third delivery:
+
+```sh
+python3 scripts/iterations.py track \
+  --task paper --artifact figure6 --revision v3 --replaces v2 --chat CHAT_ID \
+  --file /absolute/figure6_v3.svg --file /absolute/figure6_v3.png \
+  --dependency /absolute/plot.py --dependency /absolute/assets --final
+
+python3 scripts/iterations.py remind --task paper --chat CHAT_ID
+```
+
+When the result has `status: offered`, present its candidate scope, retained scope, file count, and size estimates. Use the returned `offer_id`, never an invented ID or one from another chat. Checking the same offer again does not repeat the prompt.
+
+After the user directly accepts this offer, update and bind the single lessons file, then run:
+
+```sh
+# Deletes files: run only after the user explicitly accepts the current concrete offer
+python3 scripts/iterations.py confirm \
+  --chat CHAT_ID --offer-id OFFER_ID --authorize-superseded
+```
+
+If the user replies “not now,” record dismissal without deleting files:
+
+```sh
+python3 scripts/iterations.py dismiss --chat CHAT_ID --offer-id OFFER_ID
+```
+
+Offer expiry, file revalidation, and one-time confirmation are separate from disposable-workspace cooling periods. Ordinary `prune` remains available for directly authorized cleanup without waiting for three rounds. A reminder does not grant cache-cleanup permission.
 
 ## Cache adapters
 
@@ -249,7 +314,7 @@ Default state directory:
 ${CODEX_HOME:-~/.codex}/disk-maintenance/
 ├── signing.key             Local signing key
 ├── registry.json           Disposable-workspace registry
-├── outputs-registry.json   Output revisions and lessons-file bindings
+├── outputs-registry.json   Output revisions, lessons bindings, and cleanup offers
 ├── scan-*.json             Usage baselines
 ├── plan-*.json             Cleanup plans
 └── result-*.json           Audit records
@@ -275,7 +340,7 @@ Logical size, allocated blocks, and filesystem available space are different mea
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 ```
 
-Tests use isolated directories and simulated package managers. They cover usage and growth, symlinks and hardlinks, scan budgets, plan tampering, changed files, activity checks, disk-full errors, command failures, final-output protection, replacement relationships, and single-file lessons bindings.
+Tests use isolated directories and simulated package managers. They cover usage and growth, symlinks and hardlinks, scan budgets, plan tampering, changed files, activity checks, disk-full errors, command failures, final-output protection, replacement relationships, single-file lessons bindings, reminder deduplication, chat isolation, expiry, and revalidation at confirmation.
 
 Skill formatting can be checked with Codex's bundled `skill-creator/scripts/quick_validate.py`. That development validator needs PyYAML; core scripts and unit tests still use only the standard library.
 
@@ -295,7 +360,8 @@ codex-disk-maintenance/
 │   └── iteration-results.md
 └── tests/
     ├── test_disk_maintenance.py
-    └── test_iterations.py
+    ├── test_iterations.py
+    └── test_reminders.py
 ```
 
 ## Frequently asked questions
@@ -303,6 +369,14 @@ codex-disk-maintenance/
 **Does installation enable automatic daily deletion?**
 
 No. Scheduled jobs, session hooks, and background monitoring are not implemented or configured.
+
+**Why did no reminder appear?**
+
+Confirm that the updated skill is loaded in this chat and managing the current iterations. One artifact needs at least three successful deliveries in this chat and safe candidates; many chat messages, many files, or old files alone are insufficient. The same offer is not repeatedly prompted, and the skill does not listen to other chats.
+
+**Does replying “yes” delete every cache and old file?**
+
+No. It authorizes only the concrete offer just shown in the current chat. Final outputs, required dependencies, and the one lessons file remain protected. Changed candidates, expired offers, or failed checks prevent deletion under the old offer.
 
 **Can it automatically classify any old result as unnecessary?**
 

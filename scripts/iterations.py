@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Inspect revision families; explicitly track delivered bundles and prune predecessors."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,8 @@ import uuid
 import disk_maintenance as dm
 
 REGISTRY = "outputs-registry.json"
+REMINDER_ROUNDS = 3
+OFFER_SECONDS = 24 * 60 * 60
 PATTERN = re.compile(r"(?:[ _.-]+(?:v|rev|r)(\d+)|[ _.-]*(?:版本)(\d+)|[ _.-]+(final|finalized|最终版|终稿|定稿))$", re.I)
 
 
@@ -104,9 +107,11 @@ def snapshot(path, dependency=False):
     return {"path": str(path), "measurement": measured}
 
 
-def track(store, task, artifact, revision, files, dependencies=(), replaces=(), final=False):
+def track(store, task, artifact, revision, files, dependencies=(), replaces=(), final=False, chat=None):
     if not revision.strip() or len(revision) > 128 or not files:
         raise dm.Refusal("revision_and_output_files_required")
+    if chat is not None:
+        group_key(chat, 'chat')
     with store.lock():
         registry = load(store)
         key = group_key(task, artifact)
@@ -118,7 +123,8 @@ def track(store, task, artifact, revision, files, dependencies=(), replaces=(), 
         outputs = [snapshot(p) for p in dict.fromkeys(files)]
         deps = [snapshot(p, dependency=True) for p in dict.fromkeys(dependencies)]
         group["revisions"][revision] = {"files": outputs, "dependencies": deps,
-            "replaces": list(dict.fromkeys(replaces)), "created_at": dm.utc()}
+            "replaces": list(dict.fromkeys(replaces)), "created_at": dm.utc(),
+            "delivered": bool(final), "chat": chat}
         if final:
             group["final"] = revision
         store.write(REGISTRY, store.sign(registry))
@@ -190,39 +196,49 @@ def review(registry, task=None, artifact=None):
             "note": "Only explicit predecessor chains are superseded; multi-format finals and declared dependencies stay protected."}
 
 
-def prune(store, task, artifact):
+def prepare_prune(store, registry, task, artifact):
+    """One shared preflight for reminders, confirmations, and direct pruning."""
+    if group_key(task, artifact) not in registry['groups']:
+        raise dm.Refusal('unknown_task_or_artifact')
+    notes_path = registry.get('notes',{}).get(task)
+    if notes_path and not dm.no_links(notes_path).is_file():
+        raise dm.Refusal('task_notes_missing_restore_before_pruning')
+    result = review(registry, task, artifact)
+    candidates = [p for g in result['groups'] for p in g['candidates']]
+    guards = [entry for group in registry['groups'].values()
+              for rev, record in group['revisions'].items()
+              for entry in record['dependencies'] + (record['files'] if rev not in predecessors(group) else [])]
+    if not all(valid(p) for p in guards):
+        raise dm.Refusal('retained_bundle_changed_or_missing')
+    paths = []
+    for candidate in candidates:
+        path = dm.no_links(candidate['path'])
+        info = path.stat()
+        if info.st_uid != os.getuid() or info.st_nlink != 1 or not stat.S_ISREG(info.st_mode):
+            raise dm.Refusal('candidate_not_owned_regular_single_link_file')
+        for root in (Path.home()/'.codex', Path.home()/'.cache', Path.home()/'Library', store.root):
+            if dm.inside(path, root):
+                raise dm.Refusal('protected_storage_root')
+        configured = dm.lexical(os.environ.get('CODEX_HOME', str(Path.home()/'.codex')))
+        if (dm.inside(path, configured) or path.suffix.lower() in {'.sqlite','.sqlite3','.db','.jsonl','.bib'}
+                or any(part.lower() in {'memories','mempalace','sessions','skills','worktrees'} for part in path.parts)):
+            raise dm.Refusal('protected_memory_or_working_data')
+        reason = dm.process_gate(path.parent)
+        if reason:
+            raise dm.Refusal(reason)
+        paths.append((candidate, path))
+    group = registry['groups'][group_key(task, artifact)]
+    scope = {'task': task, 'artifact': artifact, 'final': group['final'],
+             'final_record': group['revisions'].get(group['final']), 'candidates': candidates}
+    return scope, guards, paths
+
+
+def prune(store, task, artifact, expected=None):
     with store.lock():
         registry = load(store)
-        notes_path = registry.get('notes',{}).get(task)
-        if notes_path and not dm.no_links(notes_path).is_file():
-            raise dm.Refusal('task_notes_missing_restore_before_pruning')
-        result = review(registry, task, artifact)
-        candidates = [p for g in result["groups"] for p in g["candidates"]]
-        # Every retained output/dependency must still match before deletion starts.
-        guards = [entry for group in registry["groups"].values()
-                  for rev, record in group["revisions"].items()
-                  for entry in record["dependencies"] + (record["files"] if rev not in predecessors(group) else [])]
-        if not all(valid(p) for p in guards):
-            raise dm.Refusal("retained_bundle_changed_or_missing")
-        paths = []
-        for candidate in candidates:
-            path = dm.no_links(candidate["path"])
-            info = path.stat()
-            if info.st_uid != os.getuid() or info.st_nlink != 1 or not stat.S_ISREG(info.st_mode):
-                raise dm.Refusal("candidate_not_owned_regular_single_link_file")
-            # Runtime, chats, memory, and app-managed data must not be registered
-            # as disposable output revisions, even with explicit replaces edges.
-            for root in (Path.home()/'.codex', Path.home()/'.cache', Path.home()/'Library', store.root):
-                if dm.inside(path, root):
-                    raise dm.Refusal("protected_storage_root")
-            configured = dm.lexical(os.environ.get('CODEX_HOME', str(Path.home()/'.codex')))
-            if (dm.inside(path, configured) or path.suffix.lower() in {'.sqlite','.sqlite3','.db','.jsonl','.bib'}
-                    or any(part.lower() in {'memories','mempalace','sessions','skills','worktrees'} for part in path.parts)):
-                raise dm.Refusal('protected_memory_or_working_data')
-            reason = dm.process_gate(path.parent)
-            if reason:
-                raise dm.Refusal(reason)
-            paths.append((candidate, path))
+        scope, guards, paths = prepare_prune(store, registry, task, artifact)
+        if expected is not None and scope != expected:
+            raise dm.Refusal('cleanup_offer_changed_review_again')
         journal = {"version": 1, "kind": "iteration_prune", "task": task, "artifact": artifact,
                    "created_at": dm.utc(), "items": [], "volumes_before": {str(p.parent): dm.volume(p) for _, p in paths}}
         name = 'result-iterations-' + uuid.uuid4().hex + '.json'
@@ -236,6 +252,8 @@ def prune(store, task, artifact):
                 if not valid(candidate) or not all(valid(p) for p in guards):
                     raise dm.Refusal("bundle_changed_before_removal")
                 expected = path.stat()
+                if dm.stamp(expected) != candidate['measurement']['entry_stamp']:
+                    raise dm.Refusal('candidate_changed_before_rename')
                 path.rename(quarantine)
                 moved = quarantine.stat()
                 if dm.stamp(expected)[:5] != dm.stamp(moved)[:5] or moved.st_nlink != 1:
@@ -271,6 +289,125 @@ def prune(store, task, artifact):
         return journal
 
 
+def remind(store, task, chat):
+    """Persist a concrete, chat-bound suggestion; never remove output files."""
+    group_key(task, chat)
+    with store.lock():
+        registry = load(store)
+        previous = registry.get('reminders', {}).get(chat, {})
+        if previous.get('status') == 'executing':
+            return {'version': 1, 'kind': 'cleanup_reminder', 'task': task, 'chat': chat,
+                    'status': 'blocked', 'reason': 'cleanup_confirmation_in_progress_review_journal'}
+        scopes, blocked, deliveries = [], [], []
+        for group in registry['groups'].values():
+            if group['task'] != task or not group['final']:
+                continue
+            delivered = sum(record.get('delivered', False) and record.get('chat') == chat
+                            for record in group['revisions'].values())
+            final = group['revisions'][group['final']]
+            if delivered < REMINDER_ROUNDS or final.get('chat') != chat or not final.get('delivered'):
+                continue
+            deliveries.append([group['artifact'], group['final'], final['created_at']])
+            try:
+                scope, _, _ = prepare_prune(store, registry, task, group['artifact'])
+                if scope['candidates']:
+                    scopes.append(scope)
+            except (dm.Refusal, OSError) as exc:
+                blocked.append({'artifact': group['artifact'], 'reason': str(exc) if isinstance(exc, dm.Refusal) else type(exc).__name__})
+        result = {'version': 1, 'kind': 'cleanup_reminder', 'task': task, 'chat': chat,
+                  'status': 'not_due', 'blocked': blocked, 'minimum_delivered_rounds': REMINDER_ROUNDS}
+        if not scopes:
+            return result
+        scopes.sort(key=lambda s: s['artifact'])
+        candidates = [p for scope in scopes for p in scope['candidates']]
+        if len({p['path'] for p in candidates}) != len(candidates):
+            return dict(result, status='blocked', reason='shared_candidate_across_artifacts')
+        # Only a new delivered final earns another reminder, not metadata changes
+        # or repeated checks after dismissal/expiration.
+        token = hashlib.sha256(dm.canonical(sorted(deliveries))).hexdigest()
+        reminders = registry.setdefault('reminders', {})
+        seen = dict(previous.get('seen', {}))
+        if previous.get('task') and previous.get('delivery_token'):
+            seen[previous['task']] = previous['delivery_token']
+        if seen.get(task) == token:
+            return dict(result, status='already_offered', offer_status=previous['status'])
+        seen[task] = token
+        offer = {'offer_id': uuid.uuid4().hex, 'task': task, 'chat': chat,
+                 'created_at': time.time(), 'expires_at': time.time() + OFFER_SECONDS,
+                 'delivery_token': token, 'seen': seen, 'status': 'pending', 'scopes': scopes,
+                 'file_count': len(candidates),
+                 'logical_bytes': sum(p['measurement']['logical_bytes'] for p in candidates),
+                 'allocated_bytes': sum(p['measurement']['allocated_bytes'] for p in candidates)}
+        reminders[chat] = offer
+        store.write(REGISTRY, store.sign(registry))
+        return dict(result, status='offered', offer=offer,
+                    note='Ask once about this exact scope. A suggestion is not deletion authorization.')
+
+
+def pending_offer(registry, chat, offer_id):
+    group_key(chat, 'chat')
+    offer = registry.get('reminders', {}).get(chat)
+    if not offer or offer.get('offer_id') != offer_id or offer.get('chat') != chat:
+        raise dm.Refusal('no_matching_cleanup_offer_in_this_chat')
+    if offer.get('status') != 'pending':
+        raise dm.Refusal('cleanup_offer_already_resolved_or_started')
+    now = time.time()
+    if now < offer['created_at'] or now > offer['expires_at']:
+        raise dm.Refusal('cleanup_offer_expired_review_again')
+    return offer
+
+
+def dismiss(store, chat, offer_id):
+    with store.lock():
+        registry = load(store)
+        offer = pending_offer(registry, chat, offer_id)
+        offer['status'] = 'dismissed'
+        store.write(REGISTRY, store.sign(registry))
+    return {'version': 1, 'kind': 'cleanup_reminder_response', 'status': 'dismissed', 'offer_id': offer_id}
+
+
+def confirm(store, chat, offer_id):
+    """Execute a one-shot scope only after the agent has established consent."""
+    with store.lock():
+        registry = load(store)
+        offer = pending_offer(registry, chat, offer_id)
+        notes = registry.get('notes', {}).get(offer['task'])
+        if not notes or not dm.no_links(notes).is_file():
+            raise dm.Refusal('save_and_bind_task_notes_before_confirmation')
+        for expected in offer['scopes']:
+            scope, _, _ = prepare_prune(store, registry, offer['task'], expected['artifact'])
+            if scope != expected:
+                raise dm.Refusal('cleanup_offer_changed_review_again')
+        # Persist one-shot consumption BEFORE any deletion. A crashed or partly
+        # completed confirmation cannot be replayed by another short reply.
+        offer['status'] = 'executing'
+        store.write(REGISTRY, store.sign(registry))
+    result = {'version': 1, 'kind': 'cleanup_reminder_response', 'offer_id': offer_id,
+              'task': offer['task'], 'chat': chat, 'status': 'completed', 'results': []}
+    for scope in offer['scopes']:
+        try:
+            journal = prune(store, offer['task'], scope['artifact'], expected=scope)
+            result['results'].append(journal)
+            if journal.get('stopped_early') or journal.get('audit_error'):
+                result['status'] = 'stopped_review_required'
+                break
+        except (dm.Refusal, OSError) as exc:
+            result.update(status='stopped_review_required', reason=str(exc) if isinstance(exc, dm.Refusal) else type(exc).__name__)
+            break
+    try:
+        with store.lock():
+            registry = load(store)
+            current = registry.get('reminders', {}).get(chat, {})
+            if current.get('offer_id') != offer_id or current.get('status') != 'executing':
+                raise dm.Refusal('cleanup_offer_state_changed')
+            current['status'] = result['status']
+            current['record_paths'] = [r['record_path'] for r in result['results']]
+            store.write(REGISTRY, store.sign(registry))
+    except (dm.Refusal, OSError):
+        result.update(status='stopped_review_required', audit_error='offer_status_update_failed')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state-dir', default=str(Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex'))) / 'disk-maintenance'))
@@ -287,6 +424,7 @@ def main():
     p.add_argument('--dependency', action='append', default=[])
     p.add_argument('--replaces', action='append', default=[])
     p.add_argument('--final', action='store_true')
+    p.add_argument('--chat', default=os.environ.get('CODEX_THREAD_ID'), help='Current chat ID for delivered-round reminders')
     sub.add_parser('review')
     p = sub.add_parser('notes', help='Bind a single existing Markdown lessons file to a task')
     p.add_argument('--task', required=True)
@@ -295,6 +433,15 @@ def main():
     p.add_argument('--task', required=True)
     p.add_argument('--artifact', required=True)
     p.add_argument('--authorize-superseded', action='store_true', required=True)
+    p = sub.add_parser('remind', help='Offer cleanup once after three delivered rounds in this chat')
+    p.add_argument('--task', required=True)
+    p.add_argument('--chat', required=True)
+    for command in ('confirm', 'dismiss'):
+        p = sub.add_parser(command)
+        p.add_argument('--chat', required=True)
+        p.add_argument('--offer-id', required=True)
+        if command == 'confirm':
+            p.add_argument('--authorize-superseded', action='store_true', required=True)
     args = parser.parse_args()
     try:
         store = dm.Store(args.state_dir)
@@ -303,11 +450,17 @@ def main():
                 raise dm.Refusal('scan_limits_must_be_positive')
             result = inspect(args.root, args.seconds, args.max_entries)
         elif args.action == 'track':
-            result = track(store,args.task,args.artifact,args.revision,args.file,args.dependency,args.replaces,args.final)
+            result = track(store,args.task,args.artifact,args.revision,args.file,args.dependency,args.replaces,args.final,args.chat)
         elif args.action == 'review':
             result = review(load(store))
         elif args.action == 'notes':
             result = bind_notes(store,args.task,args.file)
+        elif args.action == 'remind':
+            result = remind(store,args.task,args.chat)
+        elif args.action == 'confirm':
+            result = confirm(store,args.chat,args.offer_id)
+        elif args.action == 'dismiss':
+            result = dismiss(store,args.chat,args.offer_id)
         else:
             result = prune(store,args.task,args.artifact)
         print(json.dumps(result,ensure_ascii=False,indent=2))
