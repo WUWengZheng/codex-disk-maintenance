@@ -2,19 +2,19 @@
 
 [简体中文](README.md) | **English**
 
-Disk diagnostics, output revision management, in-chat cleanup reminders, and task closeout for Codex: **retain final deliverables, required dependencies, and memory; offer cleanup after repeated deliveries; reclaim intermediates after the user says “yes”; and maintain task lessons in one Markdown document.**
+Disk diagnostics, output revision management, in-chat cleanup reminders, and task closeout for Codex: **retain final deliverables, required dependencies, and memory; offer cleanup only for continued improvements of the same result; reclaim intermediates after the user says “yes”; and maintain task lessons in one Markdown document.**
 
 Built for macOS. Core scripts use Python 3.9+ and the standard library, with no third-party Python runtime dependencies.
 
-> Once loaded and used in the current chat, the skill can proactively offer cleanup after repeated deliveries. Installation alone creates no background service, scheduled job, or session-end hook, and does not guarantee invocation in every chat. Use the one-sentence request below to enable it for a task.
+> You can opt into default checks through your user `AGENTS.md`, so subsequent tasks load the skill when improving existing results without a repeated activation phrase. Installing the skill alone does not modify global rules, create a background service, schedule jobs, or add a session-end hook. See [default checks](#default-checks-opt-in).
 
 ## The simplest way to use it
 
-Say this once when starting a task or continuing refinements:
+Without the default rule, say this once when starting a task or continuing refinements:
 
-> **Use $codex-disk-maintenance to remind me about cleanup after repeated deliveries in this task, and perform it when I reply “yes.”**
+> **Use $codex-disk-maintenance to offer cleanup after repeated improvements of the same result, and perform it when I reply “yes.” Keep new content and independent alternatives.**
 
-Continue refining normally. When a concrete cleanup offer appears, reply **“yes”** or **“需要”**. Codex updates the same lessons file, rechecks the offered predecessors, and removes those that pass. Reply “not now” to retain them without repeated prompts for the same results.
+Once the default rule is enabled, you do not need to repeat that phrase. Continue refining normally; when a concrete cleanup offer appears, reply **“yes”** or **“需要”**. Codex updates the same lessons file, rechecks the offered predecessors, and removes those that pass. Reply “not now” to retain them without repeated prompts for the same results. New topics, new content, independent alternatives, and uncertain relationships are excluded from revision cleanup.
 
 To organize existing results immediately:
 
@@ -29,13 +29,14 @@ You can also invoke individual workflows:
 | What you need | Example request |
 | --- | --- |
 | Inspect disk usage | Use $codex-disk-maintenance to inspect Codex disk usage without deleting anything. |
-| Remind after repeated deliveries | Use $codex-disk-maintenance to offer cleanup after repeated deliveries in this task, and perform it when I reply “yes.” |
+| Remind after repeated deliveries | Use $codex-disk-maintenance to offer cleanup after repeated improvements of the same result, and perform it when I reply “yes.” |
+| Enable default checks | By default, check continued improvements of the same result; offer cleanup for established predecessors, and wait for “yes.” Keep new content and independent alternatives. |
 | Manage future iterations | Use $codex-disk-maintenance for this task: keep the final deliverables and clean up superseded versions. |
 | Mark a final delivery | This version is final. Keep the complete deliverable bundle and required assets. |
 | Identify historical revisions | Use $codex-disk-maintenance to inspect revisions in this folder and list candidates first. |
 | Close out a task | Organize project deliverables, clean up intermediate versions, and update the lessons log. |
 
-In a new chat, explicitly naming `$codex-disk-maintenance` helps select the skill. A vague request such as “organize this project” might instead be interpreted as code or directory restructuring.
+In a new chat without the default rule, explicitly naming `$codex-disk-maintenance` helps select the skill. A vague request such as “organize this project” might instead be interpreted as code or directory restructuring.
 
 ## What problem does it address?
 
@@ -57,9 +58,10 @@ Codex makes semantic judgments and writes lessons using available task evidence.
 | Disposable workspaces | Create dedicated directories, record completion and retention declarations, and require a 24-hour cooling period |
 | Cache maintenance | Use native pip, uv, npm, and pnpm commands with tool-specific checks |
 | Historical revision discovery | Suggest candidates from names and version numbers within the same directory and format; never delete based on modification time |
-| Revision tracking | Record tasks, artifacts, revisions, explicit replacement relationships, and multi-format delivery bundles |
-| In-chat cleanup reminders | Offer a concrete scope after at least 3 successful deliveries of an artifact in the current chat and safely reclaimable predecessors; act after “yes” without repeating the same offer |
-| Superseded-output cleanup | Remove only authorized, registered predecessors explicitly superseded by a valid final delivery |
+| Revision tracking | Record tasks, artifacts, revisions, evidence-backed improvement relationships, and multi-format delivery bundles |
+| Default checks | After user-authorized global `AGENTS.md` opt-in, proactively load the skill when improving existing results in subsequent tasks; installation alone does not change global rules |
+| In-chat cleanup reminders | Offer a scope after at least 3 successful current-chat deliveries in the same artifact's verified improvement chain and safely reclaimable predecessors; act after “yes” without repeating the same offer |
+| Superseded-output cleanup | Remove only authorized, registered predecessors superseded through verified improvements by a valid final delivery; keep different content and independent alternatives |
 | One lessons Markdown file | Bind one lessons path per task, update it in place, and protect it |
 | Audit records | Persist intent before cleanup and record completed, skipped, failed, or partially completed actions |
 
@@ -98,6 +100,16 @@ git -C "${CODEX_HOME:-$HOME/.codex}/skills/codex-disk-maintenance" pull --ff-onl
 
 For a manually installed copy, compare and preserve local changes before switching to a Git-based installation. After updating, reload the skill in subsequent chats; an ongoing chat can explicitly be asked to read the updated `SKILL.md`.
 
+### Default checks (opt-in)
+
+To check even when you forget the activation phrase, ask Codex once:
+
+> Make cleanup reminders after improvements of the same result the default. Preserve the existing global AGENTS.md instructions and add a rule to proactively use $codex-disk-maintenance. Check only continued improvements of existing results; retain new content, independent alternatives, and uncertain relationships. Wait for my “yes” before cleaning the concrete offered list.
+
+Codex should follow [default reminder rules](references/default-reminders.md) to add a short instruction to `${CODEX_HOME:-~/.codex}/AGENTS.md` while preserving its existing content. If a nonempty `AGENTS.override.md` exists, inspect which file actually takes effect before writing an unused rule. Global guidance loads at the start of subsequent chats or runs; an ongoing chat can explicitly be asked to reread it. More specific project instructions and a request to stop reminders still apply in their scope. [Official AGENTS.md documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
+
+The default is **checking and offering cleanup**, not deletion authorization. It does not scan every historical project. Installing or updating this repository does not silently enable global rules for other users.
+
 ## Managing repeated refinements
 
 ```text
@@ -106,19 +118,27 @@ v1.svg → v2.svg → v3.svg + v3.png (final delivery)
                          └── required dependencies: plot.py, assets/
 ```
 
-The complete final bundle and its dependencies are retained. Only explicit predecessors of the final delivery become cleanup candidates.
+The complete final bundle and its dependencies are retained. A predecessor becomes a cleanup candidate only when current task evidence establishes that the new revision continues improving the existing result and supersedes that predecessor. Improvements may change the content; byte-for-byte equality is not required.
+
+| Current operation | Treatment |
+| --- | --- |
+| Adjust labels, colors, or layout based on the previous chart | Record the concrete editing basis; predecessors superseded by the final delivery can become candidates |
+| Correct or polish an existing report, or clarify the same conclusion | Record the continued improvement relationship and retain required sources and dependencies |
+| Write a report on a different topic or analyze a new dataset | Retain it as a new artifact; later creation does not supersede earlier results |
+| Provide distinct design alternatives or content branches | Retain each alternative instead of treating one as disposable |
+| Similar filenames without an established editing or replacement relationship | Retain and skip; similarity, timestamps, and version numbers alone do not establish cleanup eligibility |
 
 - A trial or failed `v4` export does not automatically replace the delivered `v3`.
 - Different formats may belong to the same bundle rather than replace each other.
 - Independent, unreplaced alternatives and outputs from other tasks remain protected.
 - Missing or changed final files/dependencies block cleanup of related predecessors.
-- Without reliable replacement relationships, Codex checks current task evidence and asks which version is final when necessary. It does not simply retain the most recently modified file.
+- Without a reliable improvement relationship, retain and skip the result. Ask which version is final only when the user actually requests that scope's cleanup and necessary information is missing.
 
 ## Cleanup reminders after repeated deliveries
 
-While managing iterations in the current chat, the skill registers one revision and its replacement relationships per successful delivery. SVG, PNG, and PDF files exported in the same round form one bundle, not multiple rounds. Drafts, tool retries, and failed exports do not count as successful deliveries.
+While managing iterations in the current chat, the skill registers one revision and its evidence-backed improvement relationships per successful delivery. SVG, PNG, and PDF files exported in the same round form one bundle, not multiple rounds. Drafts, tool retries, failed exports, and unrelated content do not count as successful deliveries in the same improvement chain.
 
-By default, after at least **3 successful deliveries of an artifact in the current chat**, with explicit predecessor files that pass the checks, Codex offers cleanup at the end of a delivery. For example:
+By default, after at least **3 successful deliveries in an artifact's verified improvement chain in the current chat**, with predecessor files that pass the checks, Codex offers cleanup at the end of a delivery. For example:
 
 ```text
 Codex: Revision 3 is delivered. I found 2 intermediate files superseded by the final
@@ -138,7 +158,7 @@ A reminder proposes an action; it does not delete in advance. File counts and si
 - Offers expire after **24 hours**. Execution still rechecks the original candidates and final bundle. Expired, changed, or active files stop the affected cleanup without expanding the scope or increasing cleanup strength.
 - Confirmation is used only once. Interruptions or partial failures are reported rather than retried automatically. Without reliable replacement relationships or safe candidates, reaching a round count does not justify a deletion offer.
 
-This is an in-chat workflow while the skill is loaded, without a cross-chat listener. Historical revisions from other chats do not count toward this chat's deliveries. Normal automatic skill selection remains available; explicitly name `$codex-disk-maintenance` with the reminder request above to enable it for this task.
+This is an in-chat workflow while the skill is loaded, without a cross-chat listener. Historical revisions from other chats do not count toward this chat's deliveries. With the default `AGENTS.md` rule configured, Codex proactively invokes the skill for applicable tasks. Without it, normal automatic selection remains available, or explicitly name `$codex-disk-maintenance` with the reminder request above.
 
 ## One continuously updated lessons file
 
@@ -231,14 +251,17 @@ python3 scripts/iterations.py track \
   --file /absolute/figure6_v1.svg
 
 python3 scripts/iterations.py track \
-  --task paper --artifact figure6 --revision v2 --replaces v1 --chat CHAT_ID \
+  --task paper --artifact figure6 --revision v2 --improves v1 --chat CHAT_ID \
+  --improvement-evidence 'Adjusted axis labels on the delivered figure6_v1.svg' \
   --file /absolute/figure6_v2.svg --file /absolute/figure6_v2.png \
   --dependency /absolute/plot.py --dependency /absolute/assets --final
 
 python3 scripts/iterations.py review
 ```
 
-`--file`, `--dependency`, and `--replaces` can be repeated. Registered revisions are immutable; register a new revision after file edits. `--final` means an established delivery, not merely a filename containing `final`. Reminders count only successful deliveries associated with the current chat ID. When `--chat` is omitted, `CODEX_THREAD_ID` is used if set; historical revisions from another chat or without a chat binding do not count.
+`--file`, `--dependency`, and `--improves` can be repeated. `--improves` identifies a predecessor that this revision genuinely builds on and supersedes; it also adds the predecessor to `replaces` metadata. It requires nonempty `--improvement-evidence` of at most 1,000 characters, briefly recording the editing basis established in the current task rather than pasting a transcript. The script validates relationship records; it does not independently judge arbitrary file semantics. Legacy `--replaces` alone is not upgraded to a verified improvement and cannot establish pruning eligibility. Do not edit signed registries to bypass checks.
+
+Registered revisions are immutable; register a new revision after file edits. `--final` means an established delivery, not merely a filename containing `final`. Reminders count only current-chat successful deliveries among the current final and its verified improvement predecessors. When `--chat` is omitted, `CODEX_THREAD_ID` is used if set; historical revisions from another chat or without a chat binding do not count.
 
 ### 5. Binding lessons and pruning predecessors
 
@@ -258,7 +281,7 @@ python3 scripts/iterations.py prune \
   --task paper --artifact figure6 --authorize-superseded
 ```
 
-It removes only explicit predecessor files. It does not empty the task directory or retain one “latest file” while deleting everything else. Revision pruning does not use the workspace's 24-hour rule; eligibility rests on explicit replacement relationships and a valid final delivery.
+It removes only predecessors in verified improvement chains. It does not empty the task directory or retain one “latest file” while deleting everything else. Legacy records containing only `--replaces` without improvement evidence remain protected, including during manual `prune`. Revision pruning does not use the workspace's 24-hour rule; eligibility rests on evidence-backed improvement relationships and a valid final delivery.
 
 ### 6. Creating, confirming, or dismissing a reminder
 
@@ -266,7 +289,8 @@ Use a stable `CHAT_ID` unique to the current chat, separate from other chats. `T
 
 ```sh
 python3 scripts/iterations.py track \
-  --task paper --artifact figure6 --revision v3 --replaces v2 --chat CHAT_ID \
+  --task paper --artifact figure6 --revision v3 --improves v2 --chat CHAT_ID \
+  --improvement-evidence 'Refined legend placement on the delivered figure6_v2.svg' \
   --file /absolute/figure6_v3.svg --file /absolute/figure6_v3.png \
   --dependency /absolute/plot.py --dependency /absolute/assets --final
 
@@ -340,7 +364,7 @@ Logical size, allocated blocks, and filesystem available space are different mea
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 ```
 
-Tests use isolated directories and simulated package managers. They cover usage and growth, symlinks and hardlinks, scan budgets, plan tampering, changed files, activity checks, disk-full errors, command failures, final-output protection, replacement relationships, single-file lessons bindings, reminder deduplication, chat isolation, expiry, and revalidation at confirmation.
+Tests use isolated directories and simulated package managers. They cover usage and growth, symlinks and hardlinks, scan budgets, plan tampering, changed files, activity checks, disk-full errors, command failures, final-output protection, improvement relationships and independent-content retention, single-file lessons bindings, reminder deduplication, chat isolation, expiry, and revalidation at confirmation.
 
 Skill formatting can be checked with Codex's bundled `skill-creator/scripts/quick_validate.py`. That development validator needs PyYAML; core scripts and unit tests still use only the standard library.
 
@@ -357,6 +381,7 @@ codex-disk-maintenance/
 │   └── iterations.py
 ├── references/
 │   ├── cleanup-rules.md
+│   ├── default-reminders.md
 │   └── iteration-results.md
 └── tests/
     ├── test_disk_maintenance.py
@@ -372,7 +397,11 @@ No. Scheduled jobs, session hooks, and background monitoring are not implemented
 
 **Why did no reminder appear?**
 
-Confirm that the updated skill is loaded in this chat and managing the current iterations. One artifact needs at least three successful deliveries in this chat and safe candidates; many chat messages, many files, or old files alone are insufficient. The same offer is not repeatedly prompted, and the skill does not listen to other chats.
+Confirm that the updated skill is loaded in this chat and managing the current iterations. To check without an activation phrase, configure the default `AGENTS.md` rule as well. An artifact's verified improvement chain needs at least three successful current-chat deliveries and safe candidates. Many messages, many files, legacy `replaces`-only records, or unrelated content are insufficient. The same offer is not repeatedly prompted, and the skill does not listen to other chats.
+
+**Does changed content always mean a different artifact?**
+
+No. Correcting an existing chart or polishing a report changes content but can still be a continued improvement of the same result. Use the current task's actual editing lineage and explicit supersession as evidence. Different topics, independent alternatives, and uncertain relationships are retained; a similarity threshold or byte equality does not replace that judgment.
 
 **Does replying “yes” delete every cache and old file?**
 
@@ -380,7 +409,7 @@ No. It authorizes only the concrete offer just shown in the current chat. Final 
 
 **Can it automatically classify any old result as unnecessary?**
 
-No. Historical filename inspection offers hints only. Reliable pruning needs current task evidence, explicit replacement relationships, and a valid final delivery.
+No. Historical filename inspection offers hints only. Reliable pruning needs current task evidence, an established continued-improvement relationship, and a valid final delivery.
 
 **Does “one Markdown file” mean all other deliverables are deleted?**
 

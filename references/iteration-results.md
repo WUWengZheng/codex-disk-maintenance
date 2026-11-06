@@ -5,11 +5,36 @@ not by an entire day or file extension. One artifact may have a final bundle:
 editable source + PDF + PNG + required assets. Protect the entire delivered
 bundle and its declared dependencies. Unrelated drafts/branches remain protected.
 
+## Evidence of refinement, not unrelated content
+
+Cleanup edges require refinements of the same original result with the same
+purpose and content scope. Establish this from the current request and actual
+editing lineage. Correcting the prior figure's labels/layout or the prior report's
+wording/error qualifies even when file bytes change. A new subject, different
+data/time scope, independent alternative, or uncertain relation stays separate
+and protected. Name/mtime/format/text-similarity hints do not establish identity.
+
+Use `--improves REV --improvement-evidence 'brief concrete edit basis'`; repeat
+`--improves` for multiple established parents. It implies the corresponding
+`--replaces` entries. The evidence is required, nonempty and at most 1000
+characters; keep it factual and short, without copying private content/transcripts.
+The executor verifies declared edges/evidence, not arbitrary semantic identity.
+Never manufacture a basis just to obtain deletion eligibility. Unknowns stay kept.
+
+Only evidenced improvement edges are traversed, for review, reminders and pruning.
+Legacy `--replaces` alone remains a stored relation but does not permit cleanup.
+Do not rewrite signed/immutable history to retrofit evidence. If a current-task
+refinement is established, register a new revision with its real parents.
+In-place edits without a distinct old output have nothing separate to remove;
+do not create extra copies solely to populate this registry.
+
+For explicitly enabled defaults, see [default-reminders.md](default-reminders.md).
+
 ## Proactive reminder and short confirmation
 
 While this skill is active for the current task, track one revision per successful
 **delivery round**, with `--final --chat CHAT_ID`. Bundle all delivered formats
-in that revision and explicitly declare predecessors and dependencies. Do not
+in that revision and declare evidenced improvement predecessors and dependencies. Do not
 count tool retries, failed exports, draft-only versions, or plain conversation.
 `--chat` defaults to `CODEX_THREAD_ID` for track when available. Use one stable
 current-chat ID and task ID; never invent historical chat associations.
@@ -20,7 +45,7 @@ After each delivery, check:
 python3 "$SKILL_DIR/scripts/iterations.py" remind --task TASK --chat CHAT_ID
 ```
 
-The default threshold is three delivered revisions of one artifact in this chat,
+The default threshold is three delivered revisions along one evidenced improvement chain in this chat,
 with a current valid final and at least one eligible explicit predecessor. Old
 registrations without chat/delivery evidence do not count. The same preflight
 as pruning rejects active files, incomplete/changed bundles and protected roots.
@@ -128,13 +153,14 @@ are not evidence that a file is final or disposable.
 ## Future iterations: record explicit replacement relationships
 
 Register successful exports as they are generated. `--revision` is immutable;
-`--replaces` must name an already registered revision of the same artifact.
+`--improves` must name an already registered revision of the same artifact with
+a concrete basis for refinement of that same deliverable.
 Use a new revision after any file edits. Keep outputs at distinct paths if
 historical versions need tracking; overwritten files cannot be recovered.
 
 ```sh
 python3 "$SKILL_DIR/scripts/iterations.py" track --task paper --artifact figure6 --revision v1 --file /absolute/figure6_v1.svg
-python3 "$SKILL_DIR/scripts/iterations.py" track --task paper --artifact figure6 --revision v2 --replaces v1 --file /absolute/figure6_v2.svg --file /absolute/figure6_v2.png --dependency /absolute/plot.py --dependency /absolute/assets --final
+python3 "$SKILL_DIR/scripts/iterations.py" track --task paper --artifact figure6 --revision v2 --improves v1 --improvement-evidence 'Correct labels and contrast in the previous figure, keeping its data scope' --file /absolute/figure6_v2.svg --file /absolute/figure6_v2.png --dependency /absolute/plot.py --dependency /absolute/assets --final
 python3 "$SKILL_DIR/scripts/iterations.py" review
 ```
 
@@ -145,6 +171,10 @@ draft until delivered. A failed/newer draft never displaces the accepted final.
 Declare all known dependencies, including sources from older revisions; do not
 claim arbitrary HTML/SVG/PDF/Office dependency graphs were automatically parsed.
 If dependencies are unknown, finish that review before authorizing deletion.
+
+Do not combine different content or independent alternatives into one improvement
+chain, even when they were generated in the same conversation or share names.
+Only final plus its evidenced improvement ancestors count toward reminder rounds.
 
 The private signed `outputs-registry.json` is essential metadata and is not
 rotated. It is separate from chat history/memory. Every declared dependency,

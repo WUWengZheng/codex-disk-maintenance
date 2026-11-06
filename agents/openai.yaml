@@ -1,6 +1,6 @@
 interface:
   display_name: "Codex 磁盘维护"
-  short_description: "多轮交付后主动提醒清理，回复需要即可回收旧版，保留成果与唯一经验文件"
-  default_prompt: "使用 $codex-disk-maintenance，在本次任务多轮交付后提醒清理，我回复需要再执行；保留最终成果、必要源文件和记忆，并持续更新唯一的经验记录.md。"
+  short_description: "同一成果多轮改进后提醒清理，保留不同内容、最终成果、源文件与唯一经验记录"
+  default_prompt: "使用 $codex-disk-maintenance，只针对同一原有成果的连续改进提醒清理，我回复需要再执行；保留不同内容、独立方案、最终成果、必要源文件和记忆，持续更新唯一的经验记录.md。"
 policy:
   allow_implicit_invocation: true

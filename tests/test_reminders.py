@@ -34,8 +34,10 @@ class ReminderTests(unittest.TestCase):
 
     def revision(self, n, chat='chat', artifact='report', final=True, deps=(), suffix='.pdf', task='task'):
         path = self.file(artifact + '_v' + str(n) + suffix)
+        predecessor = [str(n - 1)] if n > 1 else []
         it.track(self.store, task, artifact, str(n), [path], deps,
-                 [str(n - 1)] if n > 1 else [], final, chat)
+                 predecessor, final, chat, improves=predecessor,
+                 improvement_evidence='Refined the preceding fixture deliverable' if predecessor else None)
         return path
 
     def chain(self, artifact='report', chat='chat', task='task'):
@@ -248,6 +250,58 @@ class ReminderTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('--authorize-superseded', result.stderr)
         self.assertTrue(all(Path(p).exists() for p in paths))
+
+    def test_unrelated_deliveries_do_not_count_toward_improvement_rounds(self):
+        a=self.file('report_v1.pdf','Independent first topic')
+        b=self.file('report_v2.pdf','A new unrelated topic')
+        c=self.file('report_v3.pdf','Refinement of the second topic')
+        it.track(self.store,'task','report','1',[a],final=True,chat='chat')
+        it.track(self.store,'task','report','2',[b],final=True,chat='chat',replaces=['1'])
+        it.track(self.store,'task','report','3',[c],final=True,chat='chat',improves=['2'],
+                 improvement_evidence='Corrected the terminology in revision 2')
+        result=it.remind(self.store,'task','chat')
+        self.assertEqual(result['status'],'not_due')
+        d=self.file('report_v4.pdf','Further refinement of the second topic')
+        it.track(self.store,'task','report','4',[d],final=True,chat='chat',improves=['3'],
+                 improvement_evidence='Improved the existing paragraph layout')
+        result=it.remind(self.store,'task','chat')
+        self.assertEqual(result['status'],'offered')
+        offered={p['path'] for scope in result['offer']['scopes'] for p in scope['candidates']}
+        self.assertEqual(offered,{b,c})
+        self.notes()
+        self.assertEqual(it.confirm(self.store,'chat',result['offer']['offer_id'])['status'],'completed')
+        self.assertTrue(Path(a).exists()); self.assertTrue(Path(d).exists())
+
+    def test_unverified_legacy_offer_cannot_be_confirmed_after_upgrade(self):
+        paths=self.chain(); offer=self.offer(); self.notes()
+        registry=it.load(self.store)
+        group=registry['groups'][it.group_key('task','report')]
+        # Model a pre-upgrade signed registry which had --replaces links and
+        # a pending offer, but no evidence of same-deliverable improvements.
+        for record in group['revisions'].values():
+            record.pop('improves',None)
+            record.pop('improvement_evidence',None)
+        self.store.write(it.REGISTRY,self.store.sign(registry))
+        with self.assertRaisesRegex(dm.Refusal,'offer_changed'):
+            it.confirm(self.store,'chat',offer)
+        self.assertTrue(all(Path(p).exists() for p in paths))
+
+    def test_cli_records_improvement_evidence_and_rejects_missing_basis(self):
+        original=self.file('report_v1.pdf','Original draft')
+        revised=self.file('report_v2.pdf','Revised draft with corrected units')
+        it.track(self.store,'task','report','1',[original],final=True,chat='chat')
+        command=[sys.executable,str(Path(it.__file__)),'--state-dir',str(self.store.root),
+                 'track','--task','task','--artifact','report','--revision','2','--file',revised,
+                 '--chat','chat','--final','--improves','1']
+        refused=subprocess.run(command,capture_output=True,text=True)
+        self.assertEqual(refused.returncode,2)
+        accepted=subprocess.run(command+['--improvement-evidence','Corrected unit labels in the original draft'],
+                                capture_output=True,text=True)
+        self.assertEqual(accepted.returncode,0,accepted.stdout+accepted.stderr)
+        record=it.load(self.store)['groups'][it.group_key('task','report')]['revisions']['2']
+        self.assertEqual(record['improves'],['1'])
+        self.assertIn('1',record['replaces'])
+        self.assertEqual(record['improvement_evidence'],'Corrected unit labels in the original draft')
 
 
 if __name__ == '__main__':

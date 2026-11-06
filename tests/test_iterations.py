@@ -27,7 +27,9 @@ class IterationTests(unittest.TestCase):
         return str(path)
 
     def track(self,revision,files,replaces=(),final=False,deps=(),task='task',artifact='report'):
-        return it.track(self.store,task,artifact,revision,files,deps,replaces,final)
+        return it.track(self.store,task,artifact,revision,files,deps,replaces,final,
+                        improves=replaces,
+                        improvement_evidence='Refined the preceding fixture deliverable' if replaces else None)
 
     def report(self):
         return it.review(it.load(self.store))['groups'][0]
@@ -156,6 +158,92 @@ class IterationTests(unittest.TestCase):
         self.track('1',[notes]);self.track('2',[new],['1'],True)
         it.bind_notes(self.store,'task',notes)
         self.assertFalse(self.report()['candidates'])
+
+    def test_unverified_replacement_chain_stays_protected(self):
+        paths=[self.file('report_v'+str(n)+'.pdf') for n in range(1,4)]
+        for n,path in enumerate(paths,1):
+            it.track(self.store,'task','report',str(n),[path],
+                     replaces=[str(n-1)] if n>1 else [],final=True,chat='chat')
+        self.assertFalse(self.report()['candidates'])
+        with mock.patch.object(dm,'process_gate',return_value=None):
+            result=it.prune(self.store,'task','report')
+            reminder=it.remind(self.store,'task','chat')
+        self.assertEqual(result['items'],[])
+        self.assertEqual(reminder['status'],'not_due')
+        self.assertTrue(all(Path(p).exists() for p in paths))
+
+    def test_improvement_evidence_required_and_unknown_predecessor_rejected(self):
+        original=self.file('report_v1.pdf')
+        refined=self.file('report_v2.pdf')
+        it.track(self.store,'task','report','1',[original])
+        for evidence in (None,'',' \t\n','x'*1001):
+            with self.subTest(evidence_length=len(evidence) if evidence is not None else None):
+                with self.assertRaises(dm.Refusal):
+                    it.track(self.store,'task','report','2',[refined],
+                             improves=['1'],improvement_evidence=evidence)
+        with self.assertRaises(dm.Refusal):
+            it.track(self.store,'task','report','2',[refined],
+                     improves=['missing'],improvement_evidence='Adjusted the original layout')
+        with self.assertRaises(dm.Refusal):
+            it.track(self.store,'task','report','2',[refined],
+                     improvement_evidence='No actual predecessor was supplied')
+        self.assertNotIn('2',it.load(self.store)['groups'][it.group_key('task','report')]['revisions'])
+
+    def test_improves_adds_predecessor_without_redundant_replaces_flag(self):
+        original=self.file('report_v1.pdf','Original result with incorrect units')
+        refined=self.file('report_v2.pdf','Corrected units and revised explanatory text')
+        it.track(self.store,'task','report','1',[original])
+        it.track(self.store,'task','report','2',[refined],final=True,
+                 improves=['1'],improvement_evidence='Corrected unit labels in the existing report')
+        record=it.load(self.store)['groups'][it.group_key('task','report')]['revisions']['2']
+        self.assertIn('1',record['replaces'])
+        self.assertEqual([p['path'] for p in self.report()['candidates']],[original])
+
+    def test_new_content_and_alternative_final_do_not_discard_original(self):
+        # Names, format, directory, and delivery order cannot prove the same
+        # content was improved. These are independently useful deliverables.
+        original=self.file('report_v1.pdf','Sales review for Q1')
+        new_content=self.file('report_v2.pdf','Maintenance manual for a laboratory instrument')
+        alternative=self.file('report_final.pdf','Alternative proposal retaining a different method')
+        it.track(self.store,'task','report','1',[original],final=True)
+        it.track(self.store,'task','report','2',[new_content],replaces=['1'],final=True)
+        it.track(self.store,'task','report','3',[alternative],replaces=['2'],final=True)
+        self.assertFalse(self.report()['candidates'])
+        with mock.patch.object(dm,'process_gate',return_value=None):
+            self.assertEqual(it.prune(self.store,'task','report')['items'],[])
+        self.assertTrue(all(Path(p).exists() for p in (original,new_content,alternative)))
+
+    def test_verified_lineage_stops_at_unknown_edge(self):
+        a=self.file('report_v1.pdf','Independent initial topic')
+        b=self.file('report_v2.pdf','New report topic')
+        c=self.file('report_v3.pdf','Corrected chart labels in the new report')
+        it.track(self.store,'task','report','1',[a])
+        it.track(self.store,'task','report','2',[b],replaces=['1'])
+        it.track(self.store,'task','report','3',[c],final=True,
+                 improves=['2'],improvement_evidence='Corrected labels in revision 2')
+        self.assertEqual([p['path'] for p in self.report()['candidates']],[b])
+        with mock.patch.object(dm,'process_gate',return_value=None):
+            result=it.prune(self.store,'task','report')
+        self.assertEqual([p['path'] for p in result['items']],[b])
+        self.assertTrue(Path(a).exists()); self.assertTrue(Path(c).exists())
+
+    def test_modified_content_is_a_valid_improvement_while_other_branch_is_retained(self):
+        original=self.file('report_v1.pdf','Known totals: 10\nChart label: old')
+        refined=self.file('report_v2.pdf','Known totals: 12\nChart label: corrected')
+        final=self.file('report_v3.pdf','Known totals: 12\nChart label: corrected\nFootnote added')
+        independent=self.file('report_blue_option.pdf','Independent design using a different dataset')
+        it.track(self.store,'task','report','1',[original])
+        it.track(self.store,'task','report','blue',[independent],final=True)
+        it.track(self.store,'task','report','2',[refined],improves=['1'],
+                 improvement_evidence='Corrected totals and label in the original report')
+        it.track(self.store,'task','report','3',[final],final=True,improves=['2'],
+                 improvement_evidence='Added the requested footnote to revision 2')
+        self.assertNotEqual(Path(original).read_bytes(),Path(refined).read_bytes())
+        self.assertEqual({p['path'] for p in self.report()['candidates']},{original,refined})
+        with mock.patch.object(dm,'process_gate',return_value=None):
+            it.prune(self.store,'task','report')
+        self.assertFalse(Path(original).exists()); self.assertFalse(Path(refined).exists())
+        self.assertTrue(Path(final).exists()); self.assertTrue(Path(independent).exists())
 
 
 if __name__=='__main__': unittest.main()

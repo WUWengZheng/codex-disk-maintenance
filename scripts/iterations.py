@@ -107,9 +107,17 @@ def snapshot(path, dependency=False):
     return {"path": str(path), "measurement": measured}
 
 
-def track(store, task, artifact, revision, files, dependencies=(), replaces=(), final=False, chat=None):
+def track(store, task, artifact, revision, files, dependencies=(), replaces=(), final=False, chat=None,
+          improves=(), improvement_evidence=None):
     if not revision.strip() or len(revision) > 128 or not files:
         raise dm.Refusal("revision_and_output_files_required")
+    improves = list(dict.fromkeys(improves))
+    if improves and (not isinstance(improvement_evidence, str) or not improvement_evidence.strip()
+                     or len(improvement_evidence) > 1000):
+        raise dm.Refusal('concrete_improvement_evidence_required_max_1000_chars')
+    if improvement_evidence is not None and not improves:
+        raise dm.Refusal('improvement_evidence_requires_predecessor')
+    replaces = list(dict.fromkeys(list(replaces) + improves))
     if chat is not None:
         group_key(chat, 'chat')
     with store.lock():
@@ -124,7 +132,8 @@ def track(store, task, artifact, revision, files, dependencies=(), replaces=(), 
         deps = [snapshot(p, dependency=True) for p in dict.fromkeys(dependencies)]
         group["revisions"][revision] = {"files": outputs, "dependencies": deps,
             "replaces": list(dict.fromkeys(replaces)), "created_at": dm.utc(),
-            "delivered": bool(final), "chat": chat}
+            "delivered": bool(final), "chat": chat, "improves": improves,
+            "improvement_evidence": improvement_evidence.strip() if improves else None}
         if final:
             group["final"] = revision
         store.write(REGISTRY, store.sign(registry))
@@ -132,14 +141,27 @@ def track(store, task, artifact, revision, files, dependencies=(), replaces=(), 
                 "revision": revision, "final": group["final"], "files": [p["path"] for p in outputs]}
 
 
+def improvement_parents(record):
+    """Only attested refinements of the same deliverable permit reclamation.
+
+    The agent supplies the concrete editing basis from current task evidence.
+    Metadata cannot infer semantic equivalence from names or byte similarity.
+    Legacy replacement edges without that basis remain protected.
+    """
+    evidence = record.get('improvement_evidence')
+    if not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 1000:
+        return []
+    return [parent for parent in record.get('improves', []) if parent in record.get('replaces', [])]
+
+
 def predecessors(group):
     final = group["final"]
-    seen, todo = set(), list(group["revisions"][final]["replaces"]) if final else []
+    seen, todo = set(), improvement_parents(group['revisions'][final]) if final else []
     while todo:
         revision = todo.pop()
         if revision not in seen:
             seen.add(revision)
-            todo.extend(group["revisions"][revision]["replaces"])
+            todo.extend(improvement_parents(group['revisions'][revision]))
     return seen
 
 
@@ -193,7 +215,7 @@ def review(registry, task=None, artifact=None):
                        "final_valid": final_valid, "candidates": list(unique.values()), "retained": retained})
     return {"version": 1, "kind": "iteration_review", "groups": output,
             "protected_paths": sorted(set(protected)),
-            "note": "Only explicit predecessor chains are superseded; multi-format finals and declared dependencies stay protected."}
+            "note": "Only evidenced improvements of the same deliverable are superseded; alternatives, unknown relationships, finals and dependencies stay protected."}
 
 
 def prepare_prune(store, registry, task, artifact):
@@ -302,8 +324,9 @@ def remind(store, task, chat):
         for group in registry['groups'].values():
             if group['task'] != task or not group['final']:
                 continue
-            delivered = sum(record.get('delivered', False) and record.get('chat') == chat
-                            for record in group['revisions'].values())
+            lineage = predecessors(group) | {group['final']}
+            delivered = sum(group['revisions'][rev].get('delivered', False)
+                            and group['revisions'][rev].get('chat') == chat for rev in lineage)
             final = group['revisions'][group['final']]
             if delivered < REMINDER_ROUNDS or final.get('chat') != chat or not final.get('delivered'):
                 continue
@@ -423,6 +446,8 @@ def main():
     p.add_argument('--file', action='append', required=True)
     p.add_argument('--dependency', action='append', default=[])
     p.add_argument('--replaces', action='append', default=[])
+    p.add_argument('--improves', action='append', default=[], help='Verified predecessor of the same deliverable (also adds replaces)')
+    p.add_argument('--improvement-evidence', help='Brief factual basis for the same-deliverable refinement, max 1000 chars')
     p.add_argument('--final', action='store_true')
     p.add_argument('--chat', default=os.environ.get('CODEX_THREAD_ID'), help='Current chat ID for delivered-round reminders')
     sub.add_parser('review')
@@ -450,7 +475,8 @@ def main():
                 raise dm.Refusal('scan_limits_must_be_positive')
             result = inspect(args.root, args.seconds, args.max_entries)
         elif args.action == 'track':
-            result = track(store,args.task,args.artifact,args.revision,args.file,args.dependency,args.replaces,args.final,args.chat)
+            result = track(store,args.task,args.artifact,args.revision,args.file,args.dependency,args.replaces,args.final,args.chat,
+                           args.improves,args.improvement_evidence)
         elif args.action == 'review':
             result = review(load(store))
         elif args.action == 'notes':

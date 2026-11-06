@@ -1,6 +1,6 @@
 ---
 name: codex-disk-maintenance
-description: Manage disk usage and repeated output revisions; proactively offer cleanup after multiple successful deliveries and handle a short reply to a pending cleanup offer. Preserve finals, dependencies and memory, and maintain one task lessons Markdown file.
+description: Manage disk usage and refinements of the same file deliverable; offer cleanup after multiple successful revisions and handle short confirmations. Keep distinct content and alternatives, finals, sources and memory; maintain one task lessons Markdown file.
 ---
 
 # Codex 磁盘维护
@@ -9,6 +9,24 @@ Use the bundled Python 3.9+ standard-library CLI. Set `SKILL_DIR` to the directo
 containing this file; do not assume the source and installed paths are the same.
 Commands emit JSON; explain findings in the user's language.
 
+## 默认检查与同一成果判定
+
+用户已通过全局/项目规则启用默认提醒时，产出文件成果及改进原有成果时主动加载并
+执行本技能，不要求每次重复启用。安装技能本身不修改全局规则；用户明确要求设为
+默认时，按 [default-reminders.md](references/default-reminders.md) 更新有效的
+`AGENTS.md`，保留已有规则，不安装后台触发器。
+
+只把**同一原有成果、目的与内容范围保持一致的连续改进**登记为可回收的改进链。
+依据必须来自当前用户请求或实际编辑过程，例如基于上一版修正错字、布局、配色或错误。
+改进后的内容可以发生变化，不以字节完全相同为条件；文件名、序号、时间、格式或
+相似度都不能单独证明关系。新主题、新内容/数据范围、独立方案及无法确认的关系
+分别保留，不建立替代或改进边。不要为了凑轮次制造版本副本或扫描无关历史目录。
+若仅原位修改且无独立旧文件，不声称存在可回收的旧版本。
+
+可证实的改进用 `--improves REV --improvement-evidence '具体修改依据'` 登记；
+脚本自动加入对应替代边。只有 `--replaces` 的旧记录没有改进依据，默认保留。
+语义判定由 Codex 根据任务证据完成，脚本只检查已声明关系，不自动理解任意文件。
+
 ## 多轮交付后的主动提醒
 
 在当前任务启用本技能后，持续管理迭代成果，不必等用户再次说「清理」。
@@ -16,11 +34,11 @@ Commands emit JSON; explain findings in the user's language.
 「多轮结果后提醒我清理」「需要清理时问我，我回复需要再执行」。
 
 1. 每轮**成功交付**一个成果后，按 [iteration-results.md](references/iteration-results.md)
-   登记新版本、明确替代关系、完整交付包和源文件依赖；用 `--final --chat CHAT_ID`
+   登记新版本、可证实的改进关系、完整交付包和源文件依赖；用 `--final --chat CHAT_ID`
    记录本轮交付。一次交付的多种格式属于同一版本；试验、失败导出和纯聊天不计轮次。
    使用当前聊天的稳定 ID（可用 `CODEX_THREAD_ID`），任务 ID 也应稳定且限定项目。
 2. 每次交付结束前执行 `remind --task TASK --chat CHAT_ID`。默认同一成果在
-   当前聊天成功交付至少 3 轮、且存在通过复核的明确前驱文件才提出建议。
+   当前聊天的同一改进链成功交付至少 3 轮、且存在通过复核的前驱文件才提出建议。
    只有返回 `status: offered` 才提醒；其余状态保持安静或报告真正阻碍清理的问题。
 3. 用工具返回的真实数量、估计大小及范围提出**一个**待确认建议，例如：
    「已完成多轮优化，发现 N 个被最终版替代的中间文件（约 X）。将保留最终成果、
@@ -44,14 +62,14 @@ Commands emit JSON; explain findings in the user's language.
 自动提醒由已加载技能的 Codex 在交付时执行；安装技能不是跨聊天的事件钩子，
 不保证未加载技能的聊天会运行。保持隐式选用开启，必要时一句话显式启用：
 「使用 $codex-disk-maintenance，在本次任务多轮交付后提醒清理，我回复需要再执行。」
-不要为此修改全局规则或安装后台服务。
+默认调用规则仅在用户明确要求时按上节设置；不安装后台服务。
 
 ## 一句话入口
 
 用户说「这次只保留最终结果，清理中间版本」时，启用当前任务的迭代成果管理。
 同义表达如「只留最后一版」也适用。无需用户提供 CLI 命令、版本号或重复调用。
 按 [iteration-results.md](references/iteration-results.md) 在每次成功交付时自动登记独立版本、
-替代关系及依赖，保留最近一次成功交付的完整成果；试验稿和失败导出不替代定稿。
+改进关系及依赖，保留最近一次成功交付的完整成果；不同内容、独立方案、试验稿和失败导出不替代定稿。
 该句中的「清理」授权回收本次任务明确被替代的已登记版本，执行前仍需完成所有复核。
 仅说「只留最后一版」表达保留偏好，不扩展为删除历史文件的授权。
 既有文件关系不明时先识别并呈现候选；只询问无法从当前任务确定的最终版。
@@ -167,5 +185,6 @@ cool for 24 hours and still require activity/identity checks.
 
 Use later baseline comparisons to recommend dependency reuse, reduced repeated
 rendering/recording, and scratch workspaces. Do not globally disable caches or
-edit projects without authorization. This skill runs on demand and does not
-add hooks, schedulers, background services, or global rules.
+edit projects without authorization. This skill adds no hooks, schedulers or
+background services. Default invocation through global/project guidance is an
+explicit user opt-in, separate from installing or updating the skill.
